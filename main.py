@@ -9,6 +9,10 @@ from webdriver_manager.chrome import ChromeDriverManager
 import time
 import os
 from dotenv import load_dotenv
+import os
+import requests
+from PIL import Image
+from io import BytesIO
 
 # .env 파일 로드
 load_dotenv()
@@ -53,7 +57,7 @@ except Exception as e:
     print("❌ '나중에 하기' 버튼을 찾을 수 없습니다:", e)
 
 # 해시태그 페이지 접속
-tag = "여행"
+tag = "대형카페"
 driver.get(f"https://www.instagram.com/explore/tags/{tag}/")
 time.sleep(5)
 
@@ -69,31 +73,94 @@ time.sleep(5)
 #     print("❌ 게시물 링크를 찾을 수 없습니다:", e)
 
 
-# 게시물 더 많이 로딩하기 위한 스크롤 다운
+# 게시물 더 많이 로딩하기 위한 스크롤 다운 타임
 SCROLL_PAUSE_TIME = 2
 
 # 이미 스크롤해서 로드된 게시물 수
+posts = list()
 collected_posts = set()
-scroll_count = 3  # 3번 정도 스크롤 (필요에 따라 조정)
+scroll_count = 10  # 스크롤횟수 (필요에 따라 조정)
 
-for i in range(scroll_count):
+for i in range(1, scroll_count):
     # 현재 게시물 수집
     posts = driver.find_elements(By.XPATH, "//a[@role='link' and contains(@href, '/p/')]")
-    print(f"🔄 스크롤 {i+1}회차 - 게시물 {len(posts)}개 발견")
-
+    print(f"🔄 스크롤 {i}회차 - 게시물 {len(posts)}개 발견")
     for post in posts:
         href = post.get_attribute("href")
         if href and href not in collected_posts:
             collected_posts.add(href)
 
-    # 페이지 맨 아래로 스크롤
+    # 페이지 스크롤
     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
     time.sleep(SCROLL_PAUSE_TIME)
 
 # 결과 출력
 print(f"\n✅ 총 게시물 링크 {len(collected_posts)}개 수집 완료")
-for href in list(collected_posts)[:18]:  # 최대 18개 출력
+for href in list(collected_posts)[:50]:  # 최대 18개 출력
     print("📌 게시물 링크:", href)
+
+import os
+
+# 저장 경로 지정 (dataset/images 폴더 아래)
+save_dir = "./dataset/images"
+os.makedirs(save_dir, exist_ok=True)  # 폴더 없으면 생성
+
+saved_url_file = os.path.join(save_dir, "saved_image_urls.txt")
+saved_urls = set()
+
+if os.path.exists(saved_url_file):
+    with open(saved_url_file, "r") as f:
+        saved_urls = set(line.strip() for line in f if line.strip())
+
+print(f"📂 이전에 저장된 이미지 URL 수: {len(saved_urls)}")
+
+image_urls = []
+
+for i, post_url in enumerate(list(collected_posts)[:len(collected_posts)]):
+    try:
+        driver.get(post_url)
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.XPATH, "//img[contains(@class, 'x5yr21d')]"))
+        )
+        img_elem = driver.find_element(By.XPATH, "//img[contains(@class, 'x5yr21d')]")
+        img_url = img_elem.get_attribute("src")
+
+        if img_url:
+            if img_url in saved_urls:
+                print(f"🔁 {i+1}번째 이미지 URL은 이미 저장됨. 스킵")
+            else:
+                image_urls.append(img_url)
+                saved_urls.add(img_url)
+                print(f"🆕 {i+1}번째 새 이미지 URL:", img_url)
+        else:
+            print(f"⚠️ {i+1}번째 게시물에서 이미지 URL 없음")
+
+        time.sleep(1)
+
+    except Exception as e:
+        print(f"❌ {i+1}번째 게시물 이미지 추출 실패:", e)
+
+# 새로 수집한 URL 파일에 추가 저장
+with open(saved_url_file, "a") as f:
+    for url in image_urls:
+        f.write(url + "\n")
+
+print(f"\n✅ 총 {len(image_urls)}개의 새 이미지 URL 저장 완료")
+
+
+# 이미지 링크로부터 이미지 다운로드
+save_dir = "dataset/images/train"
+os.makedirs(save_dir, exist_ok=True)
+
+for idx, url in enumerate(image_urls):
+    try:
+        response = requests.get(url)
+        img = Image.open(BytesIO(response.content)).convert("RGB")
+        img_path = os.path.join(save_dir, f"ins_{idx:04}.jpg")
+        img.save(img_path)
+        print(f"✅ 저장 완료: {img_path}")
+    except Exception as e:
+        print(f"❌ 저장 실패: {url}", e)
 
 # 브라우저 종료
 driver.quit()

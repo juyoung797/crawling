@@ -1,3 +1,5 @@
 .env
 __pycache__/
 venv/
+# 이미지 학습 데이터 제외
+dataset/images/train/
